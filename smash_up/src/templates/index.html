@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smash Up</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .container {
+            background-color: white;
+            border-radius: 1rem;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            padding: 2rem;
+            max-width: 800px;
+        }
+        .player-card {
+            background-color: #f8f9fa;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .faction-list {
+            margin-top: 0.5rem;
+        }
+        .faction-item {
+            background-color: #e9ecef;
+            border-radius: 0.25rem;
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Smash Up</h1>
+        
+        <!-- New Game Button -->
+        <div class="mb-4">
+            <button id="clear-all" class="btn btn-danger">New Game</button>
+        </div>
+        
+        <!-- Settings -->
+        <div class="container mt-4">
+            <div class="d-flex justify-content-start align-items-center mb-4">
+                <div id="settings-section" class="d-flex align-items-center">
+                    <label for="max-players" class="me-2">Max Players:</label>
+                    <input type="number" id="max-players" class="form-control" style="width: 80px" min="1" value="4">
+                    <button id="update-settings" class="btn btn-primary ms-2">Update</button>
+                </div>
+            </div>
+        
+            <!-- Add Player Form -->
+            <div id="add-player-section" class="mb-4">
+                <h3>Add New Player <span id="player-count" class="text-muted fs-6">(0/4 players)</span></h3>
+                <div class="input-group">
+                    <input type="text" id="player-name" class="form-control" placeholder="Enter player name" onkeypress="if(event.key === 'Enter') document.getElementById('add-player').click()">
+                    <button id="add-player" class="btn btn-primary">Add Player</button>
+                </div>
+            </div>
+        
+        <!-- Players List -->
+        <div id="players-list">
+            <h3>Players</h3>
+            <!-- Players will be dynamically added here -->
+        </div>
+
+        <!-- Scoring Table -->
+        <div id="scoring-table" class="mt-4" style="display: none;">
+            <h3>Scores</h3>
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Previous Scores</th>
+                            <th style="width: 100px">Current Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="score-table-body">
+                        <!-- Scores will be dynamically added here -->
+                    </tbody>
+                </table>
+                <div class="d-flex justify-content-end mt-3">
+                    <button id="update-all-scores" class="btn btn-primary">Update All Scores</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Winner Announcement -->
+        <div id="winner-announcement" class="mt-4 alert alert-success text-center" style="display: none;">
+            <h4 class="alert-heading">🎉 Congratulations!</h4>
+            <p id="winner-message" class="mb-0"></p>
+        </div>
+    </div>
+
+    <script>
+        // Function to load and display all players
+        async function loadPlayers() {
+            try {
+                const response = await fetch('/get_players');
+                const players = await response.json();
+                const playersList = document.getElementById('players-list');
+                
+                // Fetch score history for each player
+                for (let player of players) {
+                    const historyResponse = await fetch(`/get_score_history/${player.id}`);
+                    player.score_history = await historyResponse.json();
+                }
+                
+                let html = '';
+                players.forEach(player => {
+                    html += `
+                        <div class="player-card">
+                            <h4>${player.name}</h4>
+                            <div class="faction-list">
+                                ${player.factions.map(faction => 
+                                    `<div class="faction-item">${faction}</div>`
+                                ).join('')}
+                            </div>
+                            ${player.factions.length < 2 ? 
+                                `<button class="btn btn-secondary mt-2" onclick="addFaction(${player.id})">Get Random Faction</button>` :
+                                '<p class="text-muted mt-2">Maximum factions reached</p>'
+                            }
+                        </div>
+                    `;
+                });
+                
+                playersList.innerHTML = html;
+
+                // Update scoring table
+                const scoreTableBody = document.getElementById('score-table-body');
+                const scoringTable = document.getElementById('scoring-table');
+                const settings = await fetch('/get_settings').then(r => r.json());
+                
+                // Check if all players have 2 factions and there are at least 2 players
+                const allPlayersHaveMaxFactions = players.every(player => player.factions.length === 2);
+                const hasEnoughPlayers = players.length >= 2;
+                
+                // Control UI sections visibility based on game state
+                if (allPlayersHaveMaxFactions && hasEnoughPlayers) {
+                    // Hide player management sections
+                    document.getElementById('settings-section').style.setProperty('display', 'none', 'important');
+                    document.getElementById('add-player-section').style.setProperty('display', 'none', 'important');
+                    document.getElementById('max-players').parentElement.style.setProperty('display', 'none', 'important');
+                    
+                    // Show scoring section
+                    scoringTable.style.display = 'block';
+                } else {
+                    // Show player management sections based on player count
+                    const currentPlayers = players.length;
+                    const maxPlayers = settings.max_players;
+                    
+                    // Hide settings and add player sections if max players reached
+                    const shouldHideManagement = currentPlayers >= maxPlayers;
+                    document.getElementById('settings-section').style.setProperty('display', shouldHideManagement ? 'none' : 'flex', 'important');
+                    document.getElementById('add-player-section').style.setProperty('display', shouldHideManagement ? 'none' : 'block', 'important');
+                    document.getElementById('max-players').parentElement.style.setProperty('display', shouldHideManagement ? 'none' : 'flex', 'important');
+                    
+                    // Hide scoring sections
+                    scoringTable.style.display = 'none';
+                    document.getElementById('winner-announcement').style.display = 'none';
+                }
+
+                let scoreHtml = '';
+                players.forEach(player => {
+                    scoreHtml += `
+                        <tr>
+                            <td>${player.name}</td>
+                            <td>
+                                <small class="text-muted">
+                                    <span style="text-decoration: line-through;">
+                                        ${player.score_history ? player.score_history.map(h => h.score).reverse().join(' → ') : ''}
+                                    </span>
+                                </small>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <input type="number" class="form-control form-control-sm score-input" 
+                                        style="width: 70px"
+                                        value="${player.score_history && player.score_history.length > 0 ? player.score_history[0].score : 0}" data-player-id="${player.id}">
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+                scoreTableBody.innerHTML = scoreHtml;
+                // Only show scoring table if all players have max factions and there are enough players
+                scoringTable.style.display = allPlayersHaveMaxFactions && hasEnoughPlayers ? 'block' : 'none';
+            } catch (error) {
+                console.error('Error loading players:', error);
+                alert('Error loading players');
+            }
+
+            await updatePlayerCount();
+        }
+
+        // Function to add a new player
+        async function addPlayer(name) {
+            try {
+                const response = await fetch('/add_player', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name: name })
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('player-name').value = '';
+                    await loadPlayers();
+                } else {
+                    alert(data.error || 'Error adding player');
+                }
+            } catch (error) {
+                console.error('Error adding player:', error);
+                alert('Error adding player');
+            }
+        }
+
+        // Function to add a faction to a player
+        async function addFaction(playerId) {
+            try {
+                const response = await fetch('/add_faction', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ player_id: playerId })
+                });
+                if (response.ok) {
+                    await loadPlayers();
+                } else {
+                    const data = await response.json();
+                    alert(data.error || 'Error adding faction');
+                }
+            } catch (error) {
+                console.error('Error adding faction:', error);
+                alert('Error adding faction');
+            }
+        }
+
+        // Function to update player count display
+        async function updatePlayerCount() {
+            const response = await fetch('/get_settings');
+            const settings = await response.json();
+            const maxPlayers = settings.max_players;
+            const currentPlayers = document.querySelectorAll('.player-card').length;
+            document.getElementById('player-count').textContent = `(${currentPlayers}/${maxPlayers} players)`;
+            document.getElementById('add-player').disabled = currentPlayers >= maxPlayers;
+        }
+
+        // Function to update player score
+        async function updateScore(playerId, score) {
+            try {
+                const response = await fetch('/update_score', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ player_id: playerId, score: score })
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to update score');
+                }
+                
+                // Check if this player is the first to exceed 15 points
+                if (score > 15) {
+                    const allPlayersResponse = await fetch('/get_players');
+                    const allPlayers = await allPlayersResponse.json();
+                    const currentPlayer = allPlayers.find(p => p.id === playerId);
+                    const otherPlayersWithHighScore = allPlayers.filter(p => p.id !== playerId && p.current_score > 15);
+                    
+                    if (otherPlayersWithHighScore.length === 0) {
+                        alert(`🎉 Congratulations ${currentPlayer.name}! You're the first to score over 15 points!`);
+                    }
+                }
+                
+                await loadPlayers(); // Reload all players data to refresh the display
+            } catch (error) {
+                console.error('Error updating score:', error);
+                alert('Error updating score');
+            }
+        }
+
+        // Function to view score history
+        async function viewScoreHistory(playerId) {
+            try {
+                const response = await fetch(`/get_score_history/${playerId}`);
+                const history = await response.json();
+                const historyText = history.map(entry => 
+                    `Score: ${entry.score} (${new Date(entry.recorded_at).toLocaleString()})`
+                ).join('\n');
+                alert(historyText || 'No score history available');
+            } catch (error) {
+                console.error('Error fetching score history:', error);
+                alert('Error fetching score history');
+            }
+        }
+
+        // Event Listeners
+        document.getElementById('add-player').addEventListener('click', async () => {
+            const name = document.getElementById('player-name').value.trim();
+            if (name) {
+                await addPlayer(name);
+                updatePlayerCount();
+            } else {
+                alert('Please enter a player name');
+            }
+        });
+
+        document.getElementById('update-settings').addEventListener('click', async () => {
+            const maxPlayers = parseInt(document.getElementById('max-players').value);
+            if (maxPlayers < 1) {
+                alert('Please enter a valid number of players');
+                return;
+            }
+            try {
+                await fetch('/update_settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ max_players: maxPlayers })
+                });
+                updatePlayerCount();
+            } catch (error) {
+                console.error('Error updating settings:', error);
+                alert('Error updating settings');
+            }
+        });
+
+        // Event delegation for score inputs and history buttons
+        document.addEventListener('change', async (e) => {
+            if (e.target.classList.contains('score-input')) {
+                const playerId = parseInt(e.target.dataset.playerId);
+                const score = parseInt(e.target.value);
+                if (!isNaN(score)) {
+                    e.target.dataset.changed = 'true';
+                }
+            }
+        });
+
+        // Update all scores button handler
+        document.getElementById('update-all-scores').addEventListener('click', async () => {
+            const scoreInputs = document.querySelectorAll('.score-input[data-changed="true"]');
+            let updateCount = 0;
+            let errorCount = 0;
+            let winnerFound = false;
+
+            for (const input of scoreInputs) {
+                const playerId = parseInt(input.dataset.playerId);
+                const score = parseInt(input.value);
+                
+                try {
+                    // Check if this player has won
+                    if (score >= 15 && !winnerFound) {
+                        const allPlayersResponse = await fetch('/get_players');
+                        const allPlayers = await allPlayersResponse.json();
+                        const currentPlayer = allPlayers.find(p => p.id === playerId);
+                        const otherPlayersWithHighScore = allPlayers.filter(p => p.id !== playerId && p.current_score >= 15);
+                        
+                        if (otherPlayersWithHighScore.length === 0) {
+                            winnerFound = true;
+                            const winnerAnnouncement = document.getElementById('winner-announcement');
+                            const winnerMessage = document.getElementById('winner-message');
+                            winnerMessage.textContent = `${currentPlayer.name} has won the game by reaching 15 points first!`;
+                            winnerAnnouncement.style.display = 'block';
+                        }
+                    }
+
+                    const response = await fetch('/update_score', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ player_id: playerId, score: score })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to update score');
+                    }
+
+                    input.dataset.changed = 'false';
+                    input.value = score;
+                    
+                    // Update only the score history display
+                    const historyResponse = await fetch(`/get_score_history/${playerId}`);
+                    const history = await historyResponse.json();
+                    const historyCell = input.closest('tr').querySelector('td:nth-child(2) small span');
+                    historyCell.textContent = history.map(h => h.score).reverse().join(' → ');
+                    
+                    updateCount++;
+                } catch (error) {
+                    console.error('Error updating score:', error);
+                    errorCount++;
+                }
+            }
+
+            if (updateCount > 0) {
+                alert(`Successfully updated ${updateCount} score(s)${errorCount > 0 ? `\n${errorCount} update(s) failed` : ''}`);
+            } else if (errorCount > 0) {
+                alert('Failed to update scores. Please try again.');
+            } else {
+                alert('No score changes to update.');
+            }
+        });
+
+        document.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('view-history')) {
+                const playerId = parseInt(e.target.dataset.playerId);
+                await viewScoreHistory(playerId);
+            }
+        });
+
+        document.getElementById('clear-all').addEventListener('click', async () => {
+            if (confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
+                try {
+                    const response = await fetch('/clear_all', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    if (response.ok) {
+                        await loadPlayers();
+                        alert('All data cleared successfully');
+                    } else {
+                        const data = await response.json();
+                        alert(data.error || 'Error clearing data');
+                    }
+                } catch (error) {
+                    console.error('Error clearing data:', error);
+                    alert('Error clearing data');
+                }
+            }
+        });
+
+        // Load players when the page loads
+        loadPlayers();
+    </script>
+</body>
+</html>
